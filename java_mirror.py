@@ -187,6 +187,29 @@ def main(path, out_path):
         no = readUBits(buf, 0, 12)
         if no == 4090:
             mNo = readUBits(buf, 16, 8)
+            # SM07 / SM08 have a DIFFERENT header layout (no gs at 27..46);
+            # handle them before reading the SM01-006 header.
+            if mNo == 7:
+                ver_s = readUBits(buf, 24, 3)
+                seq_s = readUBits(buf, 27, 8)
+                week  = readUBits(buf, 38, 13)
+                tow   = readUBits(buf, 51, 20)
+                out.write(f"MT4090 mNo=7 START  ver={ver_s} seq={seq_s:3d} week={week} tow={tow}\n")
+                counts[7] = counts.get(7, 0) + 1
+                n_ssrg += 1
+                pos = end + 3
+                continue
+            if mNo == 8:
+                ver_e = readUBits(buf, 24, 3)
+                seq_e = readUBits(buf, 27, 8)
+                tow_e = readUBits(buf, 35, 20)
+                tail  = readUBits(buf, 64, 24)
+                out.write(f"MT4090 mNo=8 END    ver={ver_e} seq={seq_e:3d}         tow={tow_e}  tail=0x{tail:06X}\n")
+                counts[8] = counts.get(8, 0) + 1
+                n_ssrg += 1
+                pos = end + 3
+                continue
+
             ver = readUBits(buf, 24, 3)
             gs  = readUBits(buf, 27, 20)
             ui  = readUBits(buf, 47, 4)

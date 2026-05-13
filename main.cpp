@@ -44,6 +44,18 @@ static void dumpSsrSat(std::FILE* out, int sat, const rtcm::ssr_t& s)
 
 static void dumpSsrg(std::FILE* out, const rtcm::SsrgMessage& m)
 {
+    if (m.mNo == 7) {
+        std::fprintf(out,
+            "MT4090 mNo=7 START  ver=%d seq=%3d week=%d tow=%d\n",
+            m.start.ver, m.start.seq, m.start.week, m.start.tow);
+        return;
+    }
+    if (m.mNo == 8) {
+        std::fprintf(out,
+            "MT4090 mNo=8 END    ver=%d seq=%3d         tow=%d  tail=0x%06X\n",
+            m.end.ver, m.end.seq, m.end.tow, m.end.tail);
+        return;
+    }
     std::fprintf(out,
         "MT4090 mNo=%d ver=%d gs=%d gnss=%d refd=%d mmi=%d uic=%d ui=%d "
         "noOrb=%d noClk=%d noBias=%d noTrop=%d noStec=%d\n",

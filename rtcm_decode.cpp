@@ -390,11 +390,19 @@ int RtcmDecoder::decodeSsrg4090()
 {
     ssrg_.orbit.clear(); ssrg_.clock.clear(); ssrg_.bias.clear();
     ssrg_.trop .clear(); ssrg_.stec .clear();
+    ssrg_.start = SsrgStart{};
+    ssrg_.end   = SsrgEnd{};
 
     int mNo = (int)PB(16, 8);            /* payload bit 16..23 (Java) */
     ssrg_.mNo  = mNo;
     last_.type = 4090;
 
+    /* SM07 / SM08 use a DIFFERENT header layout (no gs at 27..46);          *
+     * dispatch them before running the standard SM01-006 header parser.    */
+    switch (mNo) {
+    case 7: parseSM007(); return INPUT_SSRG;
+    case 8: parseSM008(); return INPUT_SSRG;
+    }
     decodeSsrgHeader(mNo == 1);
     switch (mNo) {
     case 1: parseSM001(); break;
@@ -403,7 +411,7 @@ int RtcmDecoder::decodeSsrg4090()
     case 4: parseSM004(); break;
     case 5: parseSM005(); break;
     case 6: parseSM006(); break;
-    default: return INPUT_NONE;          /* mNo 7/8 etc. undocumented */
+    default: return INPUT_NONE;          /* mNo 9, 10, 11, ... unknown */
     }
     return INPUT_SSRG;
 }
@@ -603,6 +611,54 @@ void RtcmDecoder::parseSM006()
             pos += 36;
         }
     }
+}
+
+/* ===== SM07 / SM08 (data block delimiters, reverse-engineered) ==========
+ *
+ * SM07 (80-bit payload):
+ *    bit  0..11  (12)  type      = 4090
+ *    bit 12..15  (4)   subType   = 2
+ *    bit 16..23  (8)   mNo       = 7
+ *    bit 24..26  (3)   version
+ *    bit 27..34  (8)   SSR epoch sequence counter (wraps 0..255)
+ *    bit 35..37  (3)   reserved (= 0)
+ *    bit 38..50  (13)  GPS Week Number
+ *    bit 51..70  (20)  GPS Time of Week (s)        — epoch start TOW
+ *    bit 71..79  (9)   reserved (= 0)
+ *
+ * SM08 (88-bit payload):
+ *    bit  0..11  (12)  type      = 4090
+ *    bit 12..15  (4)   subType   = 2
+ *    bit 16..23  (8)   mNo       = 8
+ *    bit 24..26  (3)   version
+ *    bit 27..34  (8)   epoch sequence counter (= SM07.seq, occasionally +1)
+ *    bit 35..54  (20)  GPS Time of Week (s)         — epoch end TOW
+ *    bit 55..63  (9)   reserved (= 0)
+ *    bit 64..87  (24)  fixed end marker (= 0x102010)
+ *
+ *  References:
+ *    - statistical analysis of 8567 SM07 + 8567 SM08 samples on
+ *      ssr_raw_data_20260510.rtcm3 (analyze_sm78_v2.py)
+ *    - exact TOW match between SM07/SM08 of same pair (8567/8567)
+ *    - GPS Week field equals 2418 (= 2026-05-10) for all samples
+ * =========================================================================*/
+void RtcmDecoder::parseSM007()
+{
+    ssrg_.start.ver  = (int)PB(24, 3);
+    ssrg_.start.seq  = (int)PB(27, 8);
+    /* PB(35,3) reserved */
+    ssrg_.start.week = (int)PB(38, 13);
+    ssrg_.start.tow  = (int)PB(51, 20);
+    /* PB(71,9) reserved */
+}
+
+void RtcmDecoder::parseSM008()
+{
+    ssrg_.end.ver  = (int)PB(24, 3);
+    ssrg_.end.seq  = (int)PB(27, 8);
+    ssrg_.end.tow  = (int)PB(35, 20);
+    /* PB(55,9) reserved */
+    ssrg_.end.tail = (int)PB(64, 24);
 }
 
 #undef PB

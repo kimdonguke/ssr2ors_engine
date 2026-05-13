@@ -123,6 +123,28 @@ struct SsrgStec {
     double stec = 0;     /* TECu */
 };
 
+/* SM07 — data block START marker (reverse-engineered).                     *
+ * Carries the GPS week, the TOW of the upcoming epoch, and an 8-bit        *
+ * sequence counter that increments once per SSR epoch (wraps at 256).      */
+struct SsrgStart {
+    int  ver     = 0;     /* always 1 in observed streams           */
+    int  seq     = 0;     /* 8-bit epoch sequence counter            */
+    int  week    = 0;     /* GPS Week Number                         */
+    int  tow     = 0;     /* GPS Time of Week (s)                    */
+};
+
+/* SM08 — data block END marker (reverse-engineered).                       *
+ * Mirrors SM07 (same TOW, same/+1 sequence counter) plus a fixed           *
+ * 24-bit magic tail (0x102010) — likely an end-of-block delimiter.         *
+ * The "SM count" the spec mentions has not been located in this stream;    *
+ * the 24-bit tail is constant regardless of how many SMs precede SM08.     */
+struct SsrgEnd {
+    int  ver     = 0;
+    int  seq     = 0;
+    int  tow     = 0;
+    int  tail    = 0;    /* 24-bit fixed marker (= 0x102010) */
+};
+
 /* container produced by one 4090 message decode ----------------------------*/
 struct SsrgMessage {
     int  mNo  = 0;       /* 1..6 (SM001..SM006)        */
@@ -139,6 +161,10 @@ struct SsrgMessage {
     std::vector<SsrgBias>  bias;
     std::vector<SsrgTrop>  trop;
     std::vector<SsrgStec>  stec;
+
+    /* SM07 / SM08 (mutually exclusive with the above vectors) */
+    SsrgStart start{};   /* valid when mNo == 7 */
+    SsrgEnd   end{};     /* valid when mNo == 8 */
 };
 
 /* ---- GPS time -------------------------------------------------------------*/
@@ -244,6 +270,8 @@ private:
     void parseSM004();
     void parseSM005();
     void parseSM006();
+    void parseSM007();   /* data block START marker */
+    void parseSM008();   /* data block END marker   */
 
     static int prnPrefix(int gnssIndicator);
 
