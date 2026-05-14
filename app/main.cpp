@@ -52,8 +52,8 @@ static void dumpSsrg(std::FILE* out, const rtcm::SsrgMessage& m)
     }
     if (m.mNo == 8) {
         std::fprintf(out,
-            "MT4090 mNo=8 END    ver=%d seq=%3d         tow=%d  tail=0x%06X\n",
-            m.end.ver, m.end.seq, m.end.tow, m.end.tail);
+            "MT4090 mNo=8 END    ver=%d seq=%3d flag=%d tow=%d  tail=0x%06X\n",
+            m.end.ver, m.end.seq, m.end.typeFlag, m.end.tow, m.end.tail);
         return;
     }
     std::fprintf(out,

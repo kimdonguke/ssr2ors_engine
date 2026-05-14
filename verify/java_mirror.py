@@ -167,6 +167,7 @@ def main(path, out_path):
     n_ssrg = 0
     counts = {}
     pos = 0
+    last_sm07_seq = 0   # tracks the most recent SM07.seq for typeFlag derivation
     while pos < len(data):
         # find 0xD3
         while pos < len(data) and data[pos] != 0xD3:
@@ -194,6 +195,7 @@ def main(path, out_path):
                 seq_s = readUBits(buf, 27, 8)
                 week  = readUBits(buf, 38, 13)
                 tow   = readUBits(buf, 51, 20)
+                last_sm07_seq = seq_s
                 out.write(f"MT4090 mNo=7 START  ver={ver_s} seq={seq_s:3d} week={week} tow={tow}\n")
                 counts[7] = counts.get(7, 0) + 1
                 n_ssrg += 1
@@ -202,9 +204,10 @@ def main(path, out_path):
             if mNo == 8:
                 ver_e = readUBits(buf, 24, 3)
                 seq_e = readUBits(buf, 27, 8)
+                flag  = (seq_e - last_sm07_seq) & 0xFF
                 tow_e = readUBits(buf, 35, 20)
                 tail  = readUBits(buf, 64, 24)
-                out.write(f"MT4090 mNo=8 END    ver={ver_e} seq={seq_e:3d}         tow={tow_e}  tail=0x{tail:06X}\n")
+                out.write(f"MT4090 mNo=8 END    ver={ver_e} seq={seq_e:3d} flag={flag} tow={tow_e}  tail=0x{tail:06X}\n")
                 counts[8] = counts.get(8, 0) + 1
                 n_ssrg += 1
                 pos = end + 3

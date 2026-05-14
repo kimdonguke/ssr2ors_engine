@@ -123,26 +123,47 @@ struct SsrgStec {
     double stec = 0;     /* TECu */
 };
 
-/* SM07 — data block START marker (reverse-engineered).                     *
- * Carries the GPS week, the TOW of the upcoming epoch, and an 8-bit        *
- * sequence counter that increments once per SSR epoch (wraps at 256).      */
+/* SM07 - data block START marker (reverse-engineered, verified statistically *
+ *        on 8567 samples; see verify_sm78_v3.py).                            *
+ *   Confirmed layout (80-bit payload):                                       *
+ *     bits 24..26  (3)  ver  = constant 1                                    *
+ *     bits 27..34  (8)  seq  = monotonic counter +1/epoch (wraps mod 256)    *
+ *     bits 35..37  (3)  reserved = 0                                         *
+ *     bits 38..50 (13)  GPS Week Number                                      *
+ *     bits 51..70 (20)  GPS Time of Week (s)                                 *
+ *     bits 71..79  (9)  reserved = 0                                         */
 struct SsrgStart {
-    int  ver     = 0;     /* always 1 in observed streams           */
-    int  seq     = 0;     /* 8-bit epoch sequence counter            */
-    int  week    = 0;     /* GPS Week Number                         */
-    int  tow     = 0;     /* GPS Time of Week (s)                    */
+    int  ver     = 0;
+    int  seq     = 0;     /* 8-bit epoch sequence counter, +1 per epoch */
+    int  week    = 0;     /* GPS Week Number                            */
+    int  tow     = 0;     /* GPS Time of Week (s)                       */
 };
 
-/* SM08 — data block END marker (reverse-engineered).                       *
- * Mirrors SM07 (same TOW, same/+1 sequence counter) plus a fixed           *
- * 24-bit magic tail (0x102010) — likely an end-of-block delimiter.         *
- * The "SM count" the spec mentions has not been located in this stream;    *
- * the 24-bit tail is constant regardless of how many SMs precede SM08.     */
+/* SM08 - data block END marker (reverse-engineered, partially understood).   *
+ *   Confirmed layout (88-bit payload):                                       *
+ *     bits 24..26  (3)  ver = constant 1                                     *
+ *     bits 27..34  (8)  seq = same as SM07.seq in 4-SMs epochs,              *
+ *                            SM07.seq+1 (mod 256) in 16..19-SMs epochs.      *
+ *                            See `typeFlag` below.                           *
+ *     bits 35..54 (20)  GPS Time of Week (s), matches SM07.tow exactly       *
+ *     bits 55..63  (9)  reserved = 0                                         *
+ *     bits 64..87 (24)  fixed marker = 0x102010, identical across all 8567   *
+ *                       observed frames. NOT a CRC (constant despite varying *
+ *                       content) and NOT an SM count. Meaning unknown.       *
+ *                                                                            *
+ *   The user-supplied spec describes SM08 as carrying "the number of SMs     *
+ *   included in the data", but NO bit field in the 88-bit payload correlates *
+ *   with the observed SM count (4 / 16..19). Either the count is implicit    *
+ *   (receiver counts the messages between SM07..SM08), or the provider does  *
+ *   not populate this field in the observed stream.                          */
 struct SsrgEnd {
-    int  ver     = 0;
-    int  seq     = 0;
-    int  tow     = 0;
-    int  tail    = 0;    /* 24-bit fixed marker (= 0x102010) */
+    int  ver      = 0;
+    int  seq      = 0;     /* raw 8-bit field at bits 27..34                  */
+    int  typeFlag = 0;     /* derived: (seq - SM07.seq) & 0xFF                *
+                            *   0 -> clock-only epoch (4 SMs: SM02 x 4)       *
+                            *   1 -> full-data epoch  (16..19 SMs)            */
+    int  tow      = 0;     /* matches SM07.tow                                */
+    int  tail     = 0;     /* 24-bit, observed always 0x102010 (meaning ?)    */
 };
 
 /* container produced by one 4090 message decode ----------------------------*/
@@ -249,6 +270,9 @@ private:
     std::array<ssr_t, MAXSAT> ssr_{};
     MsgInfo last_{};
     SsrgMessage ssrg_{};
+    int last_sm07_seq_ = 0;   /* persists across SsrgMessage resets, so that *
+                               * SM08 can compute typeFlag = (sm08.seq -     *
+                               * sm07.seq) & 0xFF                            */
 
     /* internals */
     int  decodeMessage();

@@ -615,32 +615,43 @@ void RtcmDecoder::parseSM006()
 
 /* ===== SM07 / SM08 (data block delimiters, reverse-engineered) ==========
  *
- * SM07 (80-bit payload):
- *    bit  0..11  (12)  type      = 4090
- *    bit 12..15  (4)   subType   = 2
- *    bit 16..23  (8)   mNo       = 7
- *    bit 24..26  (3)   version
- *    bit 27..34  (8)   SSR epoch sequence counter (wraps 0..255)
- *    bit 35..37  (3)   reserved (= 0)
- *    bit 38..50  (13)  GPS Week Number
- *    bit 51..70  (20)  GPS Time of Week (s)        — epoch start TOW
- *    bit 71..79  (9)   reserved (= 0)
+ * Layouts established by statistical analysis of 8567 SM07/SM08 pairs in
+ * ssr_raw_data_20260510.rtcm3. Cross-validation tools:
+ *    tools/verify_sm78.py     - per-bit constancy & seq wrap detection
+ *    tools/verify_sm78_v2.py  - SM07.seq vs SM08.seq diff by epoch type
+ *    tools/verify_sm78_v3.py  - sequential analysis, SM-count correlation
  *
- * SM08 (88-bit payload):
- *    bit  0..11  (12)  type      = 4090
- *    bit 12..15  (4)   subType   = 2
- *    bit 16..23  (8)   mNo       = 8
- *    bit 24..26  (3)   version
- *    bit 27..34  (8)   epoch sequence counter (= SM07.seq, occasionally +1)
- *    bit 35..54  (20)  GPS Time of Week (s)         — epoch end TOW
- *    bit 55..63  (9)   reserved (= 0)
- *    bit 64..87  (24)  fixed end marker (= 0x102010)
+ * Established facts:
+ *    SM07.tow == SM08.tow              : 8567/8567  (100% exact match)
+ *    SM07.seq is monotonic +1 mod 256  : 8566/8566 step violations = 0
+ *    GPS week constant                 : 2418 = 2026-05-10  (all samples)
+ *    SM08[27..34] - SM07[27..34]       : 0 in 4-SMs epochs (7139),
+ *                                        1 in 16..19 SMs epochs (1428)
+ *    SM08[64..87] = 0x102010           : constant across all 8567 frames
+ *    SM count (4 / 16 / 17 / 18 / 19)  : NOT encoded anywhere in SM08
  *
- *  References:
- *    - statistical analysis of 8567 SM07 + 8567 SM08 samples on
- *      ssr_raw_data_20260510.rtcm3 (analyze_sm78_v2.py)
- *    - exact TOW match between SM07/SM08 of same pair (8567/8567)
- *    - GPS Week field equals 2418 (= 2026-05-10) for all samples
+ * SM07 layout (80-bit payload):
+ *    bit  0..11  (12)  type      = 4090                  [constant]
+ *    bit 12..15  (4)   subType?  = 15                    [constant, meaning ?]
+ *    bit 16..23  (8)   mNo       = 7                     [constant]
+ *    bit 24..26  (3)   version   = 1                     [constant in stream]
+ *    bit 27..34  (8)   epoch sequence counter            [+1 per epoch]
+ *    bit 35..37  (3)   reserved  = 0                     [constant]
+ *    bit 38..50  (13)  GPS Week Number                   [= 2418]
+ *    bit 51..70  (20)  GPS Time of Week (s)              [epoch TOW]
+ *    bit 71..79  (9)   reserved  = 0                     [constant, padding]
+ *
+ * SM08 layout (88-bit payload):
+ *    bit  0..11  (12)  type      = 4090                  [constant]
+ *    bit 12..15  (4)   subType?  = 15                    [constant, meaning ?]
+ *    bit 16..23  (8)   mNo       = 8                     [constant]
+ *    bit 24..26  (3)   version   = 1                     [constant in stream]
+ *    bit 27..34  (8)   raw "seq" field; equals SM07.seq        [4 SMs epoch]
+ *                                       or SM07.seq+1 mod 256  [full data]
+ *    bit 35..54  (20)  GPS Time of Week (s)              [= SM07.tow]
+ *    bit 55..63  (9)   reserved  = 0                     [constant]
+ *    bit 64..87  (24)  fixed marker = 0x102010           [meaning unknown,
+ *                                                         not CRC, not count]
  * =========================================================================*/
 void RtcmDecoder::parseSM007()
 {
@@ -650,15 +661,17 @@ void RtcmDecoder::parseSM007()
     ssrg_.start.week = (int)PB(38, 13);
     ssrg_.start.tow  = (int)PB(51, 20);
     /* PB(71,9) reserved */
+    last_sm07_seq_   = ssrg_.start.seq;    /* remembered for SM08.typeFlag */
 }
 
 void RtcmDecoder::parseSM008()
 {
-    ssrg_.end.ver  = (int)PB(24, 3);
-    ssrg_.end.seq  = (int)PB(27, 8);
-    ssrg_.end.tow  = (int)PB(35, 20);
+    ssrg_.end.ver      = (int)PB(24, 3);
+    ssrg_.end.seq      = (int)PB(27, 8);
+    ssrg_.end.typeFlag = (ssrg_.end.seq - last_sm07_seq_) & 0xFF;
+    ssrg_.end.tow      = (int)PB(35, 20);
     /* PB(55,9) reserved */
-    ssrg_.end.tail = (int)PB(64, 24);
+    ssrg_.end.tail     = (int)PB(64, 24);
 }
 
 #undef PB
